@@ -23,14 +23,65 @@ const DEEPGRAM_MODELS = [
   { value: 'aura-zeus-en',        label: 'Zeus — Aura (EN, male)' },
 ];
 
+function formatTimestamp(date) {
+  const year = String(date.getFullYear());
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  const seconds = String(date.getSeconds()).padStart(2, '0');
+
+  return `${year}${month}${day}_${hours}${minutes}${seconds}`;
+}
+
+function buildFileName(text) {
+  const safeWords = text
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 4)
+    .join('_');
+
+  return `tts_${formatTimestamp(new Date())}_${safeWords || 'speech'}.mp3`;
+}
+
 function App() {
   const [textToSpeak, setTextToSpeak] = useState(DEFAULT_MESSAGE);
   const [status, setStatus] = useState('Ready. Click Speak to hear the text.');
   const [selectedModel, setSelectedModel] = useState('aura-2-thalia-en');
   const [volume, setVolume] = useState(1);
   const [isSpeaking, setIsSpeaking] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const audioRef = useRef(null);
   const blobUrlRef = useRef(null);
+
+  const requestAudioBlob = useCallback(async () => {
+    const phrase = textToSpeak.trim();
+    if (!phrase) {
+      throw new Error('Enter text before generating audio.');
+    }
+
+    const response = await fetch(
+      `${PROXY_URL}/speak?model=${encodeURIComponent(selectedModel)}&encoding=mp3`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text: phrase }),
+      }
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Deepgram error ${response.status}: ${errorText}`);
+    }
+
+    return {
+      blob: await response.blob(),
+      phrase,
+    };
+  }, [selectedModel, textToSpeak]);
 
   const stopSpeaking = useCallback(() => {
     if (audioRef.current) {
@@ -60,34 +111,12 @@ function App() {
   }, []);
 
   const speakMessage = useCallback(async () => {
-    const phrase = textToSpeak.trim();
-    if (!phrase) {
-      setStatus('Enter text before speaking.');
-      return;
-    }
-
     stopSpeaking();
     setIsSpeaking(true);
     setStatus('Generating speech...');
 
     try {
-      const response = await fetch(
-          `${PROXY_URL}/speak?model=${encodeURIComponent(selectedModel)}&encoding=mp3`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: phrase }),
-        }
-      );
-
-      if (!response.ok) {
-        const errorText = await response.text();
-          setStatus(`Deepgram error ${response.status}: ${errorText}`);
-        setIsSpeaking(false);
-        return;
-      }
-
-      const blob = await response.blob();
+      const { blob } = await requestAudioBlob();
       const blobUrl = URL.createObjectURL(blob);
       blobUrlRef.current = blobUrl;
 
@@ -113,7 +142,32 @@ function App() {
       setStatus(`Request failed: ${err.message}`);
       setIsSpeaking(false);
     }
-  }, [selectedModel, stopSpeaking, textToSpeak, volume]);
+  }, [requestAudioBlob, stopSpeaking, volume]);
+
+  const saveAudio = useCallback(async () => {
+    setIsSaving(true);
+    setStatus('Generating audio file...');
+
+    try {
+      const { blob, phrase } = await requestAudioBlob();
+      const downloadUrl = URL.createObjectURL(blob);
+      const fileName = buildFileName(phrase);
+      const link = document.createElement('a');
+
+      link.href = downloadUrl;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(downloadUrl);
+
+      setStatus(`Saved audio as ${fileName}.`);
+    } catch (err) {
+      setStatus(`Save failed: ${err.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  }, [requestAudioBlob]);
 
   return (
     <div className="App">
@@ -168,6 +222,9 @@ function App() {
         <div className="button-row">
           <button type="button" onClick={speakMessage} disabled={isSpeaking}>
             Speak
+          </button>
+          <button type="button" onClick={saveAudio} disabled={isSaving}>
+            {isSaving ? 'Saving...' : 'Save Audio'}
           </button>
           <button type="button" onClick={pauseSpeaking}>
             Pause

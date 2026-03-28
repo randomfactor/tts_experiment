@@ -1,70 +1,109 @@
-# Getting Started with Create React App
+# Deepgram TTS Experiment
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+This project is a React app with a Bun proxy server for text-to-speech using Deepgram.
 
-## Available Scripts
+The browser app sends text to the local Bun server. The Bun server calls Deepgram with your API key and returns audio to the browser for playback or download. This keeps the API key out of browser JavaScript.
 
-In the project directory, you can run:
+## Features
 
-### `npm start`
+- Text input for speech generation
+- Deepgram voice/model selection
+- Playback controls: Speak, Pause, Resume, Stop
+- Volume control
+- Save audio to local file
+- Save filename format based on project rules
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+## Architecture
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+- Frontend: React (Create React App)
+- Backend proxy: Bun server
+- Upstream TTS provider: Deepgram
 
-### `npm test`
+Request flow:
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+1. Browser calls local proxy endpoint `/speak`
+2. Bun server injects `Authorization: Token <DEEPGRAM_API_KEY>`
+3. Bun server forwards to Deepgram `/v1/speak`
+4. Bun server returns MP3 bytes to the browser
+5. Browser plays audio and can download it
 
-### `npm run build`
+## Project Structure
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+- `src/App.js`: UI, playback controls, save audio behavior
+- `src/App.css`: app styling
+- `server/index.js`: Bun proxy server for Deepgram API requests
+- `package.json`: scripts and dependencies
+- `.env.local`: local environment variables (not for commit)
+- `RULES.md`: naming and feature rules
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+## Prerequisites
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+- Node.js and npm
+- Bun
+- Deepgram API key
 
-### `npm run eject`
+## Environment Setup
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+Create or update `.env.local` in the project root:
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+```env
+DEEPGRAM_API_KEY=your_deepgram_api_key
+REACT_APP_PROXY_URL=http://localhost:3001
+```
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+Notes:
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+- `DEEPGRAM_API_KEY` is read by Bun server only.
+- `REACT_APP_PROXY_URL` is optional; default is `http://localhost:3001`.
+- Do not commit real secrets.
 
-## Learn More
+## Install
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+```bash
+npm install
+```
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+## Run (Development)
 
-### Code Splitting
+Start the Bun proxy in one terminal:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+```bash
+npm run server
+```
 
-### Analyzing the Bundle Size
+Start React in a second terminal:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+```bash
+npm start
+```
 
-### Making a Progressive Web App
+Open:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+- App: http://localhost:3000
+- Proxy: http://localhost:3001
 
-### Advanced Configuration
+## Build
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+```bash
+npm run build
+```
 
-### Deployment
+Output is generated in `build/`.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+## Save Audio Filename Rule
 
-### `npm run build` fails to minify
+When saving audio, filenames follow this pattern:
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+`tts_YYYYMMDD_HHmmss_first_four_words.mp3`
+
+Where:
+
+- `YYYYMMDD` is date
+- `HHmmss` is 24-hour time to seconds
+- `first_four_words` comes from the first four words of the text input, normalized for filename safety
+
+## Troubleshooting
+
+- If the app cannot generate speech, verify the Bun server is running and `DEEPGRAM_API_KEY` is set.
+- If requests fail with auth errors, validate your Deepgram key.
+- If CORS errors appear, ensure requests go through the local Bun proxy and not directly to Deepgram from the browser.

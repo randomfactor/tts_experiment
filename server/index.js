@@ -35,6 +35,13 @@ Bun.serve({
       try {
         const body = await req.text();
 
+        if (body.length > 10_000) {
+          return new Response(JSON.stringify({ error: 'Request body exceeds 10,000 character limit.' }), {
+            status: 413,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          });
+        }
+
         const dgResponse = await fetch(upstream, {
           method: 'POST',
           headers: {

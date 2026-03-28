@@ -1,181 +1,119 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import './App.css';
 
 const DEFAULT_MESSAGE = 'This is a text to speech experiment.';
+const PROXY_URL = process.env.REACT_APP_PROXY_URL || 'http://localhost:3001';
+
+const DEEPGRAM_MODELS = [
+  { value: 'aura-2-thalia-en',    label: 'Thalia — Aura 2 (EN, female)' },
+  { value: 'aura-2-andromeda-en', label: 'Andromeda — Aura 2 (EN, female)' },
+  { value: 'aura-2-helena-en',    label: 'Helena — Aura 2 (EN, female)' },
+  { value: 'aura-2-apollo-en',    label: 'Apollo — Aura 2 (EN, male)' },
+  { value: 'aura-2-aries-en',     label: 'Aries — Aura 2 (EN, male)' },
+  { value: 'aura-asteria-en',     label: 'Asteria — Aura (EN, female)' },
+  { value: 'aura-luna-en',        label: 'Luna — Aura (EN, female)' },
+  { value: 'aura-stella-en',      label: 'Stella — Aura (EN, female)' },
+  { value: 'aura-athena-en',      label: 'Athena — Aura (EN, female)' },
+  { value: 'aura-hera-en',        label: 'Hera — Aura (EN, female)' },
+  { value: 'aura-orion-en',       label: 'Orion — Aura (EN, male)' },
+  { value: 'aura-arcas-en',       label: 'Arcas — Aura (EN, male)' },
+  { value: 'aura-perseus-en',     label: 'Perseus — Aura (EN, male)' },
+  { value: 'aura-orpheus-en',     label: 'Orpheus — Aura (EN, male)' },
+  { value: 'aura-helios-en',      label: 'Helios — Aura (EN, male)' },
+  { value: 'aura-zeus-en',        label: 'Zeus — Aura (EN, male)' },
+];
 
 function App() {
   const [textToSpeak, setTextToSpeak] = useState(DEFAULT_MESSAGE);
   const [status, setStatus] = useState('Ready. Click Speak to hear the text.');
-  const [voices, setVoices] = useState([]);
-  const [selectedVoiceUri, setSelectedVoiceUri] = useState('');
-  const [language, setLanguage] = useState('en-US');
-  const [rate, setRate] = useState(1);
-  const [pitch, setPitch] = useState(1);
+  const [selectedModel, setSelectedModel] = useState('aura-2-thalia-en');
   const [volume, setVolume] = useState(1);
-  const utteranceIdRef = useRef(0);
-  const supportsSpeechRef = useRef(false);
+  const [isSpeaking, setIsSpeaking] = useState(false);
+  const audioRef = useRef(null);
+  const blobUrlRef = useRef(null);
 
-  const availableLanguages = Array.from(new Set(voices.map((voice) => voice.lang))).sort();
-
-  const speakMessage = useCallback(() => {
-    if (typeof window === 'undefined') {
-      setStatus('Speech is unavailable in this environment.');
-      return;
+  const stopSpeaking = useCallback(() => {
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
     }
-
-    if (!supportsSpeechRef.current) {
-      setStatus('No speech API is available in this browser context.');
-      return;
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
     }
+    setIsSpeaking(false);
+    setStatus('Speech stopped.');
+  }, []);
 
+  const pauseSpeaking = useCallback(() => {
+    if (audioRef.current && !audioRef.current.paused) {
+      audioRef.current.pause();
+      setStatus('Speech paused.');
+    }
+  }, []);
+
+  const resumeSpeaking = useCallback(() => {
+    if (audioRef.current && audioRef.current.paused) {
+      audioRef.current.play();
+      setStatus('Speaking...');
+    }
+  }, []);
+
+  const speakMessage = useCallback(async () => {
     const phrase = textToSpeak.trim();
     if (!phrase) {
       setStatus('Enter text before speaking.');
       return;
     }
 
-    window.speechSynthesis.cancel();
+    stopSpeaking();
+    setIsSpeaking(true);
+    setStatus('Generating speech...');
 
-    const utterance = new window.SpeechSynthesisUtterance(phrase);
-    const utteranceId = utteranceIdRef.current + 1;
-    utteranceIdRef.current = utteranceId;
-
-    utterance.lang = language;
-    utterance.rate = rate;
-    utterance.pitch = pitch;
-    utterance.volume = volume;
-    if (selectedVoiceUri) {
-      const voice = voices.find((item) => item.voiceURI === selectedVoiceUri);
-      if (voice) {
-        utterance.voice = voice;
-      }
-    }
-
-    utterance.onstart = () => {
-      if (utteranceId !== utteranceIdRef.current) {
-        return;
-      }
-
-      setStatus('Speaking...');
-    };
-
-    utterance.onend = () => {
-      if (utteranceId !== utteranceIdRef.current) {
-        return;
-      }
-
-      setStatus('Finished speaking.');
-    };
-
-    utterance.onerror = (event) => {
-      if (utteranceId !== utteranceIdRef.current) {
-        return;
-      }
-
-      if (event.error === 'not-allowed') {
-        setStatus('Speech was blocked. Click Speak again after interacting with the page.');
-        return;
-      }
-
-      if (event.error === 'interrupted' || event.error === 'canceled') {
-        setStatus('Speech was interrupted.');
-        return;
-      }
-
-      setStatus(`Speech failed: ${event.error}.`);
-    };
-
-    window.speechSynthesis.speak(utterance);
-  }, [language, pitch, rate, selectedVoiceUri, textToSpeak, voices, volume]);
-
-  useEffect(() => {
-    if (typeof window === 'undefined') {
-      setStatus('Speech is unavailable in this environment.');
-      return undefined;
-    }
-
-    if (
-      typeof window.speechSynthesis === 'undefined' ||
-      typeof window.SpeechSynthesisUtterance === 'undefined'
-    ) {
-      setStatus('No speech API is available in this browser context.');
-      return undefined;
-    }
-
-    supportsSpeechRef.current = true;
-
-    const nextLanguage = navigator.language || 'en-US';
-    setLanguage(nextLanguage);
-
-    const updateVoices = () => {
-      const availableVoices = window.speechSynthesis.getVoices();
-      setVoices(availableVoices);
-
-      if (!availableVoices.length) {
-        return;
-      }
-
-      setSelectedVoiceUri((currentVoiceUri) => {
-        if (currentVoiceUri && availableVoices.some((item) => item.voiceURI === currentVoiceUri)) {
-          return currentVoiceUri;
+    try {
+      const response = await fetch(
+          `${PROXY_URL}/speak?model=${encodeURIComponent(selectedModel)}&encoding=mp3`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: phrase }),
         }
+      );
 
-        const languageMatch = availableVoices.find((item) => item.lang === nextLanguage);
-        return (languageMatch || availableVoices[0]).voiceURI;
-      });
-    };
-
-    updateVoices();
-    window.speechSynthesis.addEventListener('voiceschanged', updateVoices);
-
-    return () => {
-      window.speechSynthesis.removeEventListener('voiceschanged', updateVoices);
-      window.speechSynthesis.cancel();
-    };
-  }, []);
-
-  const stopSpeaking = useCallback(() => {
-    if (!supportsSpeechRef.current) {
-      return;
-    }
-
-    window.speechSynthesis.cancel();
-    setStatus('Speech stopped.');
-  }, []);
-
-  const pauseSpeaking = useCallback(() => {
-    if (!supportsSpeechRef.current) {
-      return;
-    }
-
-    window.speechSynthesis.pause();
-    setStatus('Speech paused.');
-  }, []);
-
-  const resumeSpeaking = useCallback(() => {
-    if (!supportsSpeechRef.current) {
-      return;
-    }
-
-    window.speechSynthesis.resume();
-    setStatus('Speech resumed.');
-  }, []);
-
-  const handleLanguageChange = useCallback(
-    (nextLanguage) => {
-      setLanguage(nextLanguage);
-
-      if (!voices.length) {
+      if (!response.ok) {
+        const errorText = await response.text();
+          setStatus(`Deepgram error ${response.status}: ${errorText}`);
+        setIsSpeaking(false);
         return;
       }
 
-      const matchingVoice = voices.find((voice) => voice.lang === nextLanguage);
-      if (matchingVoice) {
-        setSelectedVoiceUri(matchingVoice.voiceURI);
-      }
-    },
-    [voices]
-  );
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      blobUrlRef.current = blobUrl;
+
+      const audio = new Audio(blobUrl);
+      audio.volume = volume;
+      audioRef.current = audio;
+
+      audio.onplay = () => setStatus('Speaking...');
+      audio.onended = () => {
+        setStatus('Finished speaking.');
+        setIsSpeaking(false);
+        URL.revokeObjectURL(blobUrl);
+        blobUrlRef.current = null;
+        audioRef.current = null;
+      };
+      audio.onerror = () => {
+        setStatus('Audio playback failed.');
+        setIsSpeaking(false);
+      };
+
+      await audio.play();
+    } catch (err) {
+      setStatus(`Request failed: ${err.message}`);
+      setIsSpeaking(false);
+    }
+  }, [selectedModel, stopSpeaking, textToSpeak, volume]);
 
   return (
     <div className="App">
@@ -197,67 +135,16 @@ function App() {
         <select
           id="voice-select"
           className="voice-select"
-          value={selectedVoiceUri}
-          onChange={(event) => {
-            const nextVoiceUri = event.target.value;
-            setSelectedVoiceUri(nextVoiceUri);
-
-            const selectedVoice = voices.find((voice) => voice.voiceURI === nextVoiceUri);
-            if (selectedVoice) {
-              setLanguage(selectedVoice.lang);
-            }
-          }}
+          value={selectedModel}
+          onChange={(event) => setSelectedModel(event.target.value)}
         >
-          {voices.map((voice) => (
-            <option key={voice.voiceURI} value={voice.voiceURI}>
-              {voice.name} ({voice.lang})
+          {DEEPGRAM_MODELS.map((model) => (
+            <option key={model.value} value={model.value}>
+              {model.label}
             </option>
           ))}
         </select>
-        <label className="text-label" htmlFor="lang-select">
-          Language
-        </label>
-        <select
-          id="lang-select"
-          className="voice-select"
-          value={language}
-          onChange={(event) => handleLanguageChange(event.target.value)}
-        >
-          {[language, ...availableLanguages]
-            .filter((lang, index, source) => lang && source.indexOf(lang) === index)
-            .map((lang) => (
-              <option key={lang} value={lang}>
-                {lang}
-              </option>
-            ))}
-        </select>
         <div className="control-grid">
-          <label className="control-item" htmlFor="rate-input">
-            <span>Rate (0.1 to 10)</span>
-            <input
-              id="rate-input"
-              type="range"
-              min="0.1"
-              max="10"
-              step="0.1"
-              value={rate}
-              onChange={(event) => setRate(Number(event.target.value))}
-            />
-            <output>{rate.toFixed(1)}</output>
-          </label>
-          <label className="control-item" htmlFor="pitch-input">
-            <span>Pitch (0 to 2)</span>
-            <input
-              id="pitch-input"
-              type="range"
-              min="0"
-              max="2"
-              step="0.1"
-              value={pitch}
-              onChange={(event) => setPitch(Number(event.target.value))}
-            />
-            <output>{pitch.toFixed(1)}</output>
-          </label>
           <label className="control-item" htmlFor="volume-input">
             <span>Volume (0 to 1)</span>
             <input
@@ -267,13 +154,19 @@ function App() {
               max="1"
               step="0.1"
               value={volume}
-              onChange={(event) => setVolume(Number(event.target.value))}
+              onChange={(event) => {
+                const next = Number(event.target.value);
+                setVolume(next);
+                if (audioRef.current) {
+                  audioRef.current.volume = next;
+                }
+              }}
             />
             <output>{volume.toFixed(1)}</output>
           </label>
         </div>
         <div className="button-row">
-          <button type="button" onClick={speakMessage}>
+          <button type="button" onClick={speakMessage} disabled={isSpeaking}>
             Speak
           </button>
           <button type="button" onClick={pauseSpeaking}>
